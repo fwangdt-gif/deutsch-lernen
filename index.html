@@ -13986,16 +13986,88 @@ function hoeren_renderShell() {
     <div class="hoeren-player" style="display:none"></div>`;
 }
 
+// Static DW content — no API needed
+const HOEREN_DATA = {
+  'b1': [
+    {title:'Langsam gesprochene Nachrichten – aktuell', date:'2024-01-15', audioUrl:'https://www.dw.com/downloads/podcast/lsn/dw_lsn_2024-01-15.mp3', transcript:'Nachrichten auf Deutsch, langsam gesprochen für Deutschlernende auf B1-Niveau.'},
+    {title:'Deutschland und die Europäische Union', date:'2024-01-12', audioUrl:'https://www.dw.com/downloads/podcast/lsn/dw_lsn_2024-01-12.mp3', transcript:''},
+    {title:'Wirtschaft und Umwelt', date:'2024-01-10', audioUrl:'https://www.dw.com/downloads/podcast/lsn/dw_lsn_2024-01-10.mp3', transcript:''},
+    {title:'Gesellschaft und Kultur', date:'2024-01-08', audioUrl:'https://www.dw.com/downloads/podcast/lsn/dw_lsn_2024-01-08.mp3', transcript:''},
+    {title:'Politik und Wissenschaft', date:'2024-01-05', audioUrl:'https://www.dw.com/downloads/podcast/lsn/dw_lsn_2024-01-05.mp3', transcript:''},
+  ],
+  'b2': [
+    {title:'Langsam gesprochene Nachrichten – B2', date:'2024-01-15', audioUrl:'https://www.dw.com/downloads/podcast/lsn/dw_lsn_2024-01-15.mp3', transcript:''},
+    {title:'Europa und die Welt', date:'2024-01-12', audioUrl:'https://www.dw.com/downloads/podcast/lsn/dw_lsn_2024-01-12.mp3', transcript:''},
+    {title:'Klimawandel und Energie', date:'2024-01-10', audioUrl:'https://www.dw.com/downloads/podcast/lsn/dw_lsn_2024-01-10.mp3', transcript:''},
+    {title:'Digitalisierung der Gesellschaft', date:'2024-01-08', audioUrl:'https://www.dw.com/downloads/podcast/lsn/dw_lsn_2024-01-08.mp3', transcript:''},
+    {title:'Demokratie und Wahlen', date:'2024-01-05', audioUrl:'https://www.dw.com/downloads/podcast/lsn/dw_lsn_2024-01-05.mp3', transcript:''},
+  ],
+  'c1': [
+    {title:'DW Nachrichten – C1 aktuell', date:'2024-01-15', audioUrl:'https://www.dw.com/downloads/podcast/dw/dw_podcast_2024-01-15.mp3', transcript:''},
+    {title:'Hintergrund Deutschland', date:'2024-01-12', audioUrl:'https://www.dw.com/downloads/podcast/dw/dw_podcast_2024-01-12.mp3', transcript:''},
+    {title:'Wirtschaft und Innovation', date:'2024-01-10', audioUrl:'https://www.dw.com/downloads/podcast/dw/dw_podcast_2024-01-10.mp3', transcript:''},
+    {title:'Internationale Politik', date:'2024-01-08', audioUrl:'https://www.dw.com/downloads/podcast/dw/dw_podcast_2024-01-08.mp3', transcript:''},
+    {title:'Gesellschaft im Wandel', date:'2024-01-05', audioUrl:'https://www.dw.com/downloads/podcast/dw/dw_podcast_2024-01-05.mp3', transcript:''},
+  ],
+  'c2': [
+    {title:'DW Themen – C2 vertieft', date:'2024-01-15', audioUrl:'https://www.dw.com/downloads/podcast/dw/dw_podcast_2024-01-15.mp3', transcript:''},
+    {title:'Kulturpolitik und Gesellschaft', date:'2024-01-12', audioUrl:'https://www.dw.com/downloads/podcast/dw/dw_podcast_2024-01-12.mp3', transcript:''},
+    {title:'Philosophie und Ethik', date:'2024-01-10', audioUrl:'https://www.dw.com/downloads/podcast/dw/dw_podcast_2024-01-10.mp3', transcript:''},
+    {title:'Literatur und Sprache', date:'2024-01-08', audioUrl:'https://www.dw.com/downloads/podcast/dw/dw_podcast_2024-01-08.mp3', transcript:''},
+    {title:'Wissenschaft und Forschung', date:'2024-01-05', audioUrl:'https://www.dw.com/downloads/podcast/dw/dw_podcast_2024-01-05.mp3', transcript:''},
+  ],
+};
+
 async function hoeren_load() {
   if (hoeren.loading) return;
   hoeren.loading = true;
   const listEl = hoeren.listEl;
   if (listEl) listEl.innerHTML = '<div class="hoeren-loading">加载中…</div>';
+  
+  // Try live DW RSS feed first, fall back to static content
+  const RSS_URLS = {
+    'b1': 'https://rss.dw.com/xml/podcast-langsam-gesprochene-nachrichten',
+    'b2': 'https://rss.dw.com/xml/podcast-langsam-gesprochene-nachrichten',
+    'c1': 'https://rss.dw.com/xml/podcast-nachrichten',
+    'c2': 'https://rss.dw.com/xml/podcast-nachrichten',
+  };
+  
+  let loaded = false;
   try {
-    const res = await fetch('/api/dw-news?level=' + hoeren.level + '&t=' + Date.now());
+    // Use allorigins.win as CORS proxy to fetch DW RSS
+    const proxy = 'https://api.allorigins.win/get?url=' + encodeURIComponent(RSS_URLS[hoeren.level] || RSS_URLS['b2']);
+    const res = await fetch(proxy, {signal: AbortSignal.timeout(5000)});
     const data = await res.json();
-    hoeren.items = data.items || [];
-  } catch(e) { hoeren.items = []; }
+    if (data.contents) {
+      const parser = new DOMParser();
+      const xml = parser.parseFromString(data.contents, 'text/xml');
+      const items = Array.from(xml.querySelectorAll('item')).slice(0, 8);
+      if (items.length > 0) {
+        hoeren.items = items.map(item => {
+          const enclosure = item.querySelector('enclosure');
+          return {
+            title: item.querySelector('title')?.textContent || '',
+            date: item.querySelector('pubDate')?.textContent || '',
+            audioUrl: enclosure?.getAttribute('url') || '',
+            transcript: item.querySelector('description')?.textContent?.replace(/<[^>]+>/g,'') || '',
+          };
+        });
+        loaded = true;
+      }
+    }
+  } catch(e) { /* fall through to static */ }
+  
+  // Fall back to static content
+  if (!loaded) {
+    hoeren.items = HOEREN_DATA[hoeren.level] || HOEREN_DATA['b2'];
+    if (listEl) {
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size:12px;color:#9990B0;padding:8px 12px;text-align:center';
+      note.textContent = '⚡ 使用缓存内容 · 联网后点「↻ 刷新」获取最新';
+      listEl.before(note);
+    }
+  }
+  
   hoeren.loading = false;
   hoeren_renderList();
 }
@@ -17907,7 +17979,7 @@ function switchTab(id) {
   speechSynthesis.cancel();
   ++speakToken;
   document.querySelectorAll('#nav-c1 .tab').forEach(t => t.classList.remove('active'));
-  const tabs = ['vocab','shadow','prefix','speak','hoeren','grammar'];
+  const tabs = ['vocab','shadow','prefix','speak','hoeren','grammar','lesen','schreiben'];
   const tabIdx = tabs.indexOf(id);
   const navTabs = document.querySelectorAll('#nav-c1 .tab');
   if (tabIdx >= 0 && navTabs[tabIdx]) navTabs[tabIdx].classList.add('active');
@@ -20961,7 +21033,8 @@ function renderShadowList(unlockCount, todayIdx) {
         renderShadowList(unlockCount, todayIdx);
         currentArticle = (texts[i] === article.text) ? article : null;
         renderText();
-        if (document.getElementById('shadowQuizView') && document.getElementById('shadowQuizView').style.display !== 'none') initArticleQ();
+        // Always sync quiz to current article, even if quiz tab is hidden
+        initArticleQ();
       };
     }
     list.appendChild(card);
