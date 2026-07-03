@@ -11,7 +11,7 @@
 <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22%E6%BC%AB%E6%BC%AB%E5%BC%80%E5%8F%A3%E8%AF%B4%E5%BE%B7%E8%AF%AD%22%2C%22short_name%22%3A%22%E5%BE%B7%E8%AF%AD%E8%AE%AD%E7%BB%83%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23f5f3ff%22%2C%22theme_color%22%3A%22%239333ea%22%2C%22icons%22%3A%5B%5D%7D">
 
 <!-- iOS PWA -->
-<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="德语C1">
 <style>
@@ -17692,7 +17692,7 @@ function updateStreak() {
     localStorage.setItem('c1_streak', n);
     localStorage.setItem('c1_last', today);
   }
-  document.getElementById('streakBadge').textContent = n + ' 天 🔥';
+  const sb = document.getElementById('streakBadge'); if(sb) sb.textContent = n + ' 天 🔥';
 }
 
 // ═══════════════════════════════════════════════
@@ -20648,9 +20648,11 @@ function setShadowSubMode(mode) {
   if (mode==='quiz') initArticleQ();
 }
 
-function initArticleQ() {
-  const ct = convTrainingAll[shadowIdx];
+function initArticleQ(forceIdx) {
+  const idx = (forceIdx !== undefined) ? forceIdx : shadowIdx;
+  const ct = convTrainingAll[idx];
   if (!ct) return;
+  shadowIdx = idx; // ensure shadowIdx is always in sync
   document.getElementById('dqUnitTitle').textContent = ct.title;
   dqIdx=0; dqScore=0;
   document.getElementById('dqSummary').style.display='none';
@@ -20661,7 +20663,7 @@ function initArticleQ() {
 function renderDialogQ() {
   const ct = convTrainingAll[shadowIdx];
   if (!ct) return;
-  const r = ct.rounds[dqIdx];
+  const r = ct.rounds[Math.min(dqIdx, ct.rounds.length-1)];
   dqAnswered=false;
   document.getElementById('dqProgress').textContent='第 '+(dqIdx+1)+' / '+ct.rounds.length+' 轮';
   document.getElementById('dqGrammarLabel').textContent = r.grammarLabel;
@@ -20987,12 +20989,11 @@ function unlockAllPrefix() {
 }
 
 function initShadow() {
-  const daysSince = getDaysSinceStart();
-  const unlockCount = Math.min(daysSince + 1, texts.length);
-  const todayIdx = unlockCount - 1; // today = most recent unlocked article
+  // All articles unlocked — user can freely choose
+  const unlockCount = texts.length;
+  const todayIdx = 0; // default to first article
 
-  // Ensure shadowIdx is in unlocked range; default to today
-  if (shadowIdx >= unlockCount) shadowIdx = todayIdx;
+  if (shadowIdx >= unlockCount) shadowIdx = 0;
 
   renderShadowList(unlockCount, todayIdx);
   currentArticle = (texts[shadowIdx] === article.text) ? article : null;
@@ -21033,8 +21034,8 @@ function renderShadowList(unlockCount, todayIdx) {
         renderShadowList(unlockCount, todayIdx);
         currentArticle = (texts[i] === article.text) ? article : null;
         renderText();
-        // Always sync quiz to current article, even if quiz tab is hidden
-        initArticleQ();
+        // Explicitly pass index to avoid any closure/timing issues
+        initArticleQ(i);
       };
     }
     list.appendChild(card);
@@ -29931,50 +29932,14 @@ buildTopicGrid();
 
 
 
-/* ══ PWA Offline Service Worker ══ */
-if ('serviceWorker' in navigator) {
-  const swCode = `
-    const CACHE = 'deutsch-lernen-v2';
-    self.addEventListener('install', e => {
-      self.skipWaiting();
+/* ══ PWA — blob SW not supported on Vercel, skipped ══ */
+// Offline caching via browser's native cache when page is visited
+if ('caches' in window) {
+  window.addEventListener('load', () => {
+    caches.open('deutsch-lernen-v2').then(c => {
+      c.add(window.location.href).catch(()=>{});
     });
-    self.addEventListener('activate', e => {
-      e.waitUntil(
-        caches.keys().then(keys =>
-          Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-        )
-      );
-      self.clients.claim();
-    });
-    self.addEventListener('fetch', e => {
-      if (e.request.url.includes('api.anthropic.com') ||
-          e.request.url.includes('tts') ||
-          e.request.url.includes('fonts.googleapis.com') ||
-          e.request.url.includes('fonts.gstatic.com')) {
-        return; // always network for API/fonts
-      }
-      e.respondWith(
-        caches.match(e.request).then(cached => {
-          if (cached) return cached;
-          return fetch(e.request).then(resp => {
-            if (resp && resp.status === 200) {
-              caches.open(CACHE).then(c => c.put(e.request, resp.clone()));
-            }
-            return resp;
-          }).catch(() => cached);
-        })
-      );
-    });
-  `;
-  const blob = new Blob([swCode], {type: 'application/javascript'});
-  const swUrl = URL.createObjectURL(blob);
-  navigator.serviceWorker.register(swUrl, {scope: './'}).then(reg => {
-    // Cache this page for offline use
-    if ('caches' in window) {
-      caches.open('deutsch-lernen-v2').then(c => c.add(window.location.href));
-    }
-    console.log('[PWA] Offline ready ✓');
-  }).catch(e => console.log('[PWA] SW failed:', e));
+  });
 }
 
 </script>
